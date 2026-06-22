@@ -13,7 +13,7 @@ describe("UserAccessControl", function () {
 
   it("deployer is registered as Admin", async () => {
     const profile = await uac.getProfile(owner.address);
-    expect(profile.role).to.equal(3); // Admin
+    expect(profile.role).to.equal(3);
     expect(profile.isActive).to.be.true;
   });
 
@@ -36,7 +36,7 @@ describe("UserAccessControl", function () {
 
   it("Admin can update role and deactivate user", async () => {
     await uac.registerUser(editor.address, "Alice", 2);
-    await uac.updateRole(editor.address, 1); // downgrade to Viewer
+    await uac.updateRole(editor.address, 1);
     expect((await uac.getProfile(editor.address)).role).to.equal(1);
 
     await uac.setUserActive(editor.address, false);
@@ -45,97 +45,149 @@ describe("UserAccessControl", function () {
   });
 });
 
-describe("ChartStorage", function () {
-  let uac, cs, admin, editor, viewer;
-
-  const LABELS   = JSON.stringify(["Jan","Feb","Mar"]);
-  const DATASETS = JSON.stringify([{ label: "Sales", data: [10, 20, 30] }]);
+describe("ChatRoom", function () {
+  let uac, cr, admin, editor, viewer, stranger;
 
   beforeEach(async () => {
-    [admin, editor, viewer] = await ethers.getSigners();
+    [admin, editor, viewer, stranger] = await ethers.getSigners();
 
     const UAC = await ethers.getContractFactory("UserAccessControl");
     uac = await UAC.deploy();
     await uac.waitForDeployment();
 
-    await uac.registerUser(editor.address, "Editor", 2);
-    await uac.registerUser(viewer.address, "Viewer", 1);
+    await uac.registerUser(editor.address,  "Alice",   2); // Editor
+    await uac.registerUser(viewer.address,  "Bob",     1); // Viewer
 
-    const CS = await ethers.getContractFactory("ChartStorage");
-    cs = await CS.deploy(await uac.getAddress());
-    await cs.waitForDeployment();
+    const CR = await ethers.getContractFactory("ChatRoom");
+    cr = await CR.deploy(await uac.getAddress());
+    await cr.waitForDeployment();
   });
 
-  it("Editor can create a chart", async () => {
-    const tx = await cs.connect(editor).createChart(
-      "Test Chart", "bar", LABELS, DATASETS, "desc"
-    );
-    await tx.wait();
-    expect(await cs.getChartCount()).to.equal(1);
+  it("registered user can create a public room", async () => {
+    await cr.connect(editor).createRoom("General", "Public chat", false);
+    expect(await cr.getRoomCount()).to.equal(1);
   });
 
-  it("Viewer cannot create a chart", async () => {
+  it("unregistered user cannot create a room", async () => {
     await expect(
-      cs.connect(viewer).createChart("X", "bar", LABELS, DATASETS, "d")
-    ).to.be.revertedWith("CS: Editor or Admin required");
+      cr.connect(stranger).createRoom("Hack", "No", false)
+    ).to.be.revertedWith("CR: Registered active user required");
   });
 
-  it("getChart returns correct data", async () => {
-    await cs.connect(editor).createChart("Sales Chart", "line", LABELS, DATASETS, "monthly");
-    const chart = await cs.connect(viewer).getChart(1);
-    expect(chart.title).to.equal("Sales Chart");
-    expect(chart.chartType).to.equal("line");
-    expect(chart.creator).to.equal(editor.address);
-    expect(chart.isActive).to.be.true;
+  it("user can join a public room and send messages", async () => {
+    await cr.connect(editor).createRoom("General", "Public", false);
+    await cr.connect(viewer).joinRoom(1);
+    await cr.connect(viewer).sendMessage(1, "Hello from viewer!");
+    const msgs = await cr.connect(viewer).getRoomMessages(1);
+    expect(msgs.length).to.equal(1);
+    expect(msgs[0].content).to.equal("Hello from viewer!");
+    expect(msgs[0].sender).to.equal(viewer.address);
   });
 
-  it("Update appends new block without overwriting history", async () => {
-    await cs.connect(editor).createChart("My Chart", "bar", LABELS, DATASETS, "d");
-
-    const newDatasets = JSON.stringify([{ label: "Sales", data: [15, 25, 35] }]);
-    await cs.connect(editor).updateChart(1, LABELS, newDatasets, "updated");
-
-    const hist = await cs.connect(viewer).getChartHistory(1);
-    expect(hist.length).to.equal(2);
-    expect(hist[0].action).to.equal("CREATE");
-    expect(hist[1].action).to.equal("UPDATE");
+  it("empty message is rejected", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    await expect(
+      cr.connect(editor).sendMessage(1, "")
+    ).to.be.revertedWith("CR: empty message");
   });
 
-  it("Hash chain is correctly linked", async () => {
-    await cs.connect(editor).createChart("C", "bar", LABELS, DATASETS, "d");
-    const newD = JSON.stringify([{ label: "Sales", data: [5, 10, 15] }]);
-    await cs.connect(editor).updateChart(1, LABELS, newD, "v2");
+  it("hash chain is correctly linked", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    await cr.connect(editor).sendMessage(1, "First");
+    await cr.connect(editor).sendMessage(1, "Second");
 
-    const hist = await cs.connect(viewer).getChartHistory(1);
-    expect(hist[1].previousHash).to.equal(hist[0].blockHash);
+    const msgs = await cr.connect(editor).getRoomMessages(1);
+    expect(msgs[0].prevMsgHash).to.equal(ethers.ZeroHash);
+    expect(msgs[1].prevMsgHash).to.equal(msgs[0].msgHash);
   });
 
   it("verifyIntegrity returns true for unmodified chain", async () => {
-    await cs.connect(editor).createChart("D", "pie", LABELS, DATASETS, "d");
-    const [valid, msg] = await cs.verifyIntegrity(1);
+    await cr.connect(editor).createRoom("G", "D", false);
+    await cr.connect(editor).sendMessage(1, "Msg1");
+    await cr.connect(editor).sendMessage(1, "Msg2");
+    const [valid, msg] = await cr.verifyIntegrity(1);
     expect(valid).to.be.true;
     expect(msg).to.include("verified");
   });
 
-  it("unregistered user cannot read charts", async () => {
-    const [,,,, stranger] = await ethers.getSigners();
-    await cs.connect(editor).createChart("E", "bar", LABELS, DATASETS, "d");
+  it("sender can edit own message", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    await cr.connect(editor).sendMessage(1, "Original");
+    await cr.connect(editor).editMessage(1, 0, "Edited");
+
+    const msgs = await cr.connect(editor).getRoomMessages(1);
+    expect(msgs[0].content).to.equal("Edited");
+    expect(msgs[0].editCount).to.equal(1);
+  });
+
+  it("edit history is preserved in MsgVersions", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    const tx = await cr.connect(editor).sendMessage(1, "Original");
+    await tx.wait();
+    await cr.connect(editor).editMessage(1, 0, "Edited");
+
+    const msgs    = await cr.connect(editor).getRoomMessages(1);
+    const versions = await cr.connect(editor).getMsgVersions(msgs[0].msgId);
+    expect(versions.length).to.equal(1);
+    expect(versions[0].content).to.equal("Original");
+  });
+
+  it("user cannot edit another user's message", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    await cr.connect(viewer).joinRoom(1);
+    await cr.connect(editor).sendMessage(1, "Alice's msg");
     await expect(
-      cs.connect(stranger).getChart(1)
-    ).to.be.revertedWith("CS: Registered active user required");
+      cr.connect(viewer).editMessage(1, 0, "Hacked")
+    ).to.be.revertedWith("CR: can only edit own messages");
   });
 
-  it("Admin can deactivate a chart", async () => {
-    await cs.connect(editor).createChart("F", "bar", LABELS, DATASETS, "d");
-    await cs.connect(admin).deactivateChart(1);
-    await expect(cs.connect(viewer).getChart(1)).to.be.revertedWith("CS: chart not found");
+  it("sender can retract own message", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    await cr.connect(editor).sendMessage(1, "Delete me");
+    await cr.connect(editor).retractMessage(1, 0);
+
+    const msgs = await cr.connect(editor).getRoomMessages(1);
+    expect(msgs[0].isRetracted).to.be.true;
+    expect(msgs[0].content).to.equal("[Message retracted]");
   });
 
-  it("getTotalTransactions increments correctly", async () => {
-    expect(await cs.getTotalTransactions()).to.equal(0);
-    await cs.connect(editor).createChart("G", "bar", LABELS, DATASETS, "d");
-    expect(await cs.getTotalTransactions()).to.equal(1);
-    await cs.connect(editor).updateChart(1, LABELS, DATASETS, "v2");
-    expect(await cs.getTotalTransactions()).to.equal(2);
+  it("admin can retract any message", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    await cr.connect(editor).sendMessage(1, "Alice msg");
+    await cr.connect(admin).retractMessage(1, 0);
+
+    const msgs = await cr.connect(editor).getRoomMessages(1);
+    expect(msgs[0].isRetracted).to.be.true;
+  });
+
+  it("non-member cannot read private room messages", async () => {
+    await cr.connect(editor).createRoom("Private", "D", true);
+    await cr.connect(editor).sendMessage(1, "Secret");
+    await expect(
+      cr.connect(viewer).getRoomMessages(1)
+    ).to.be.revertedWith("CR: not a room member");
+  });
+
+  it("creator can add member to private room", async () => {
+    await cr.connect(editor).createRoom("Priv", "D", true);
+    await cr.connect(editor).addMember(1, viewer.address);
+    expect(await cr.isMember(1, viewer.address)).to.be.true;
+  });
+
+  it("getTotalMessages increments correctly", async () => {
+    await cr.connect(editor).createRoom("G", "D", false);
+    expect(await cr.getTotalMessages()).to.equal(0);
+    await cr.connect(editor).sendMessage(1, "A");
+    expect(await cr.getTotalMessages()).to.equal(1);
+    await cr.connect(editor).sendMessage(1, "B");
+    expect(await cr.getTotalMessages()).to.equal(2);
+  });
+
+  it("admin can deactivate a room", async () => {
+    await cr.connect(editor).createRoom("ToDelete", "D", false);
+    await cr.connect(admin).deactivateRoom(1);
+    await expect(
+      cr.connect(editor).sendMessage(1, "msg")
+    ).to.be.revertedWith("CR: room not found");
   });
 });

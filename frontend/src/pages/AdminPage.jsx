@@ -83,7 +83,7 @@ export default function AdminPage() {
   const [registering, setRegistering] = useState(false);
 
   if (!isConnected) return <Navigate to="/" replace />;
-  if (userRole < ROLE.Admin) return <Navigate to="/dashboard" replace />;
+  if (userRole < ROLE.Admin) return <Navigate to="/chat" replace />;
 
   const loadUsers = useCallback(async () => {
     if (!uacContract) return;

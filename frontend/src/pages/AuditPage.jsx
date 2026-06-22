@@ -8,13 +8,17 @@ function truncHash(h) {
   const s = h.startsWith("0x") ? h : "0x" + h;
   return `${s.slice(0, 10)}…${s.slice(-8)}`;
 }
+function truncAddr(addr) {
+  return addr ? `${addr.slice(0, 8)}…${addr.slice(-6)}` : "—";
+}
 
-function BlockNode({ tx, index, isLast }) {
+function MsgBlock({ msg, index, isLast }) {
   const [expanded, setExpanded] = useState(false);
-  const date = new Date(Number(tx.blockTimestamp) * 1000);
+  const date = new Date(Number(msg.sentAt) * 1000);
+  const isGenesis = msg.prevMsgHash === "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return (
-    <div className={`block-node ${tx.action === "CREATE" ? "genesis" : ""}`}>
+    <div className={`block-node ${isGenesis ? "genesis" : ""}`}>
       <div className="block-connector">
         <div className="block-circle">{index + 1}</div>
         {!isLast && <div className="block-line"></div>}
@@ -22,15 +26,17 @@ function BlockNode({ tx, index, isLast }) {
       <div className="block-content" onClick={() => setExpanded(!expanded)}>
         <div className="block-header">
           <div className="block-action-row">
-            <span className={`block-action ${tx.action === "CREATE" ? "create" : "update"}`}>
-              {tx.action === "CREATE" ? "🔒 GENESIS BLOCK" : "✏️ UPDATE BLOCK"}
+            <span className={`block-action ${isGenesis ? "create" : "update"}`}>
+              {isGenesis ? "🔒 GENESIS MESSAGE" : "💬 MESSAGE"}
+              {msg.isRetracted && " [RETRACTED]"}
+              {msg.editCount > 0 && ` (edited ${msg.editCount}x)`}
             </span>
-            <span className="block-tx-id">Tx #{Number(tx.txId)}</span>
+            <span className="block-tx-id">Msg #{Number(msg.msgId)}</span>
             <span className="block-time">{date.toLocaleString()}</span>
           </div>
           <div className="block-actor">
-            <span className="meta-key">Actor:</span>
-            <code className="actor-addr">{tx.actor}</code>
+            <span className="meta-key">Sender:</span>
+            <code className="actor-addr">{msg.sender}</code>
           </div>
         </div>
 
@@ -38,35 +44,34 @@ function BlockNode({ tx, index, isLast }) {
           <div className="hash-row">
             <span className="hash-label">Previous Hash</span>
             <code className="hash-val prev">
-              {tx.previousHash === "0x0000000000000000000000000000000000000000000000000000000000000000"
-                ? "0x000…000 (genesis)"
-                : truncHash(tx.previousHash)}
+              {isGenesis ? "0x000…000 (genesis)" : truncHash(msg.prevMsgHash)}
             </code>
           </div>
-          <div className="hash-arrow">↓ keccak256(id + data + actor + timestamp + prevHash)</div>
+          <div className="hash-arrow">↓ keccak256(msgId + roomId + sender + content + timestamp + prevHash)</div>
           <div className="hash-row current">
-            <span className="hash-label">Block Hash</span>
-            <code className="hash-val current">{truncHash(tx.blockHash)}</code>
+            <span className="hash-label">Message Hash</span>
+            <code className="hash-val current">{truncHash(msg.msgHash)}</code>
           </div>
         </div>
 
         {expanded && (
           <div className="block-snapshot">
-            <div className="snapshot-label">Data Snapshot stored in this block:</div>
-            <pre className="snapshot-data">
-              {(() => {
-                try { return JSON.stringify(JSON.parse(tx.dataSnapshot), null, 2); }
-                catch { return tx.dataSnapshot; }
-              })()}
-            </pre>
+            <div className="snapshot-label">Message content stored in this block:</div>
+            <pre className="snapshot-data">{msg.content}</pre>
             <div className="full-hashes">
-              <div><span className="meta-key">Full Previous Hash: </span><code className="hash-display">{tx.previousHash}</code></div>
-              <div><span className="meta-key">Full Block Hash: </span><code className="hash-display">{tx.blockHash}</code></div>
+              <div>
+                <span className="meta-key">Full Previous Hash: </span>
+                <code className="hash-display">{msg.prevMsgHash}</code>
+              </div>
+              <div>
+                <span className="meta-key">Full Message Hash: </span>
+                <code className="hash-display">{msg.msgHash}</code>
+              </div>
             </div>
           </div>
         )}
 
-        <button className="expand-btn">{expanded ? "▲ Collapse" : "▼ Show Data Snapshot"}</button>
+        <button className="expand-btn">{expanded ? "▲ Collapse" : "▼ Show Full Details"}</button>
       </div>
     </div>
   );
@@ -74,11 +79,11 @@ function BlockNode({ tx, index, isLast }) {
 
 export default function AuditPage() {
   const { id } = useParams();
-  const { csContract, isConnected } = useBlockchain();
+  const { crContract, isConnected } = useBlockchain();
   const navigate = useNavigate();
 
-  const [chartTitle, setChartTitle] = useState("");
-  const [history,    setHistory]    = useState([]);
+  const [roomName,   setRoomName]   = useState("");
+  const [messages,   setMessages]   = useState([]);
   const [integrity,  setIntegrity]  = useState(null);
   const [isLoading,  setLoading]    = useState(true);
   const [isVerifying,setVerifying]  = useState(false);
@@ -86,50 +91,56 @@ export default function AuditPage() {
 
   if (!isConnected) return <Navigate to="/" replace />;
 
-  // Load a specific chart if id is provided; otherwise show all charts
-  const targetId = id ? Number(id) : null;
+  const roomId = id ? Number(id) : null;
 
   useEffect(() => {
-    if (!csContract) return;
+    if (!crContract) return;
     (async () => {
       setLoading(true);
+      setError("");
       try {
-        if (targetId) {
-          const c = await csContract.getChart(targetId);
-          setChartTitle(c.title);
-          const hist = await csContract.getChartHistory(targetId);
-          setHistory(hist.map((t) => ({
-            txId:          Number(t.txId),
-            chartId:       Number(t.chartId),
-            previousHash:  t.previousHash,
-            blockHash:     t.blockHash,
-            actor:         t.actor,
-            blockTimestamp:t.blockTimestamp,
-            action:        t.action,
-            dataSnapshot:  t.dataSnapshot,
+        if (roomId) {
+          const room = await crContract.getRoom(roomId);
+          setRoomName(room.name);
+          const raw = await crContract.getRoomMessages(roomId);
+          setMessages(raw.map((m) => ({
+            msgId:       Number(m.msgId),
+            roomId:      Number(m.roomId),
+            sender:      m.sender,
+            content:     m.content,
+            sentAt:      m.sentAt,
+            prevMsgHash: m.prevMsgHash,
+            msgHash:     m.msgHash,
+            isRetracted: m.isRetracted,
+            editCount:   Number(m.editCount),
           })));
         } else {
-          // Show combined audit log across all charts
-          const ids = await csContract.getAllChartIds();
-          const allTxs = [];
-          for (const cid of ids) {
-            const hist = await csContract.getChartHistory(cid);
-            for (const t of hist) {
-              allTxs.push({
-                txId:          Number(t.txId),
-                chartId:       Number(t.chartId),
-                previousHash:  t.previousHash,
-                blockHash:     t.blockHash,
-                actor:         t.actor,
-                blockTimestamp:t.blockTimestamp,
-                action:        t.action,
-                dataSnapshot:  t.dataSnapshot,
-              });
+          // Global audit: collect messages across all rooms
+          const rooms = await crContract.getAllRooms();
+          const allMsgs = [];
+          for (const r of rooms) {
+            try {
+              const raw = await crContract.getRoomMessages(Number(r.roomId));
+              for (const m of raw) {
+                allMsgs.push({
+                  msgId:       Number(m.msgId),
+                  roomId:      Number(m.roomId),
+                  sender:      m.sender,
+                  content:     m.content,
+                  sentAt:      m.sentAt,
+                  prevMsgHash: m.prevMsgHash,
+                  msgHash:     m.msgHash,
+                  isRetracted: m.isRetracted,
+                  editCount:   Number(m.editCount),
+                });
+              }
+            } catch {
+              // skip private rooms user isn't a member of
             }
           }
-          allTxs.sort((a, b) => Number(a.txId) - Number(b.txId));
-          setHistory(allTxs);
-          setChartTitle("All Charts");
+          allMsgs.sort((a, b) => Number(a.msgId) - Number(b.msgId));
+          setMessages(allMsgs);
+          setRoomName("All Accessible Rooms");
         }
       } catch (err) {
         setError("Failed to load audit log: " + (err.reason || err.message));
@@ -137,14 +148,14 @@ export default function AuditPage() {
         setLoading(false);
       }
     })();
-  }, [csContract, targetId]);
+  }, [crContract, roomId]);
 
   const verifyIntegrity = async () => {
-    if (!targetId) return;
+    if (!roomId) return;
     setVerifying(true);
     try {
-      const [valid, message] = await csContract.verifyIntegrity(targetId);
-      const latestHash = await csContract.getLatestHash(targetId);
+      const [valid, message] = await crContract.verifyIntegrity(roomId);
+      const latestHash = await crContract.getLatestHash(roomId);
       setIntegrity({ valid, message, latestHash });
     } catch (err) {
       setIntegrity({ valid: false, message: err.reason || err.message });
@@ -158,24 +169,22 @@ export default function AuditPage() {
       <div className="audit-header">
         <div>
           <div className="audit-breadcrumb">
-            <button className="btn btn-ghost" onClick={() => navigate("/dashboard")}>← Dashboard</button>
-            {targetId && (
+            <button className="btn btn-ghost" onClick={() => navigate("/chat")}>← Back to Chat</button>
+            {roomId && (
               <>
                 <span className="breadcrumb-sep">/</span>
-                <button className="btn btn-ghost" onClick={() => navigate(`/charts/${targetId}`)}>
-                  Chart #{targetId}
-                </button>
+                <span className="breadcrumb-current">Room #{roomId}</span>
               </>
             )}
           </div>
           <h1 className="page-title">
-            {targetId ? `Audit Log — ${chartTitle}` : "Global Audit Log"}
+            {roomId ? `Audit Log — ${roomName}` : "Global Audit Log"}
           </h1>
           <p className="page-subtitle">
-            Immutable blockchain transaction history · {history.length} block{history.length !== 1 ? "s" : ""} recorded
+            Immutable blockchain message history · {messages.length} message{messages.length !== 1 ? "s" : ""} recorded
           </p>
         </div>
-        {targetId && (
+        {roomId && (
           <button className="btn btn-secondary" onClick={verifyIntegrity} disabled={isVerifying}>
             {isVerifying ? <><span className="spinner"></span> Verifying…</> : "⛓️ Verify Integrity"}
           </button>
@@ -187,7 +196,7 @@ export default function AuditPage() {
           {integrity.valid ? "✅" : "❌"} {integrity.message}
           {integrity.latestHash && (
             <div style={{ marginTop: 6, fontSize: 12 }}>
-              Latest block hash: <code className="hash-display">{integrity.latestHash}</code>
+              Latest hash: <code className="hash-display">{integrity.latestHash}</code>
             </div>
           )}
         </div>
@@ -196,30 +205,30 @@ export default function AuditPage() {
       {error && <div className="alert alert-error">{error}</div>}
 
       {isLoading ? (
-        <div className="loading-spinner"><div className="spinner"></div>Loading blockchain history…</div>
-      ) : history.length === 0 ? (
+        <div className="loading-spinner"><div className="spinner"></div>Loading blockchain message history…</div>
+      ) : messages.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">⛓️</div>
-          <h3>No Transactions Found</h3>
-          <p>No blockchain records exist for this chart yet.</p>
+          <h3>No Messages Found</h3>
+          <p>No blockchain records exist for this room yet.</p>
         </div>
       ) : (
         <div className="audit-chain">
           <div className="chain-legend">
-            <span className="legend-item create">● Genesis Block</span>
-            <span className="legend-item update">● Update Block</span>
+            <span className="legend-item create">● Genesis Message</span>
+            <span className="legend-item update">● Subsequent Message</span>
             <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
-              Each block's hash includes the previous hash, creating a tamper-evident chain
+              Each message hash includes the previous hash, forming a tamper-evident chain
             </span>
           </div>
           <div className="block-list">
-            {history.map((tx, i) => (
-              <BlockNode key={tx.txId} tx={tx} index={i} isLast={i === history.length - 1} />
+            {messages.map((msg, i) => (
+              <MsgBlock key={msg.msgId} msg={msg} index={i} isLast={i === messages.length - 1} />
             ))}
           </div>
           <div className="chain-end">
             <div className="chain-end-icon">🔒</div>
-            <div className="chain-end-label">End of Chain — {history.length} transactions recorded</div>
+            <div className="chain-end-label">End of Chain — {messages.length} messages on-chain</div>
           </div>
         </div>
       )}
