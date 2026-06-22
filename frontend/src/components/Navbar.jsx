@@ -7,27 +7,24 @@ export default function Navbar() {
   const { account, userRole, username, isConnected, disconnect } = useBlockchain();
   const location = useLocation();
 
-  const short = (addr) => addr ? `${addr.slice(0,6)}…${addr.slice(-4)}` : "";
-
+  const short = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
   const isActive = (path) => location.pathname.startsWith(path) ? "nav-link active" : "nav-link";
 
   return (
     <nav className="navbar">
       <div className="navbar-brand">
         <span className="navbar-logo">⬡</span>
-        <span className="navbar-title">SecureChart</span>
-        <span className="navbar-tagline">Blockchain-Secured Visualisation</span>
+        <span className="navbar-title">SecureChat</span>
+        <span className="navbar-tagline">Blockchain-Secured Messaging</span>
       </div>
 
       {isConnected && (
         <div className="navbar-links">
-          <Link to="/dashboard"       className={isActive("/dashboard")}>Dashboard</Link>
-          {userRole >= ROLE.Editor && (
-            <Link to="/charts/create" className={isActive("/charts/create")}>+ New Chart</Link>
-          )}
-          <Link to="/audit"           className={isActive("/audit")}>Audit Log</Link>
+          <Link to="/chat"          className={isActive("/chat")}>Chat</Link>
+          <Link to="/rooms/create"  className={isActive("/rooms/create")}>+ New Room</Link>
+          <Link to="/audit"         className={isActive("/audit")}>Audit Log</Link>
           {userRole >= ROLE.Admin && (
-            <Link to="/admin"         className={isActive("/admin")}>Users</Link>
+            <Link to="/admin"       className={isActive("/admin")}>Users</Link>
           )}
         </div>
       )}
@@ -36,7 +33,7 @@ export default function Navbar() {
         {isConnected ? (
           <div className="navbar-account">
             <div className="navbar-user-info">
-              <span className="navbar-username">{username || "Unknown User"}</span>
+              <span className="navbar-username">{username || "Unknown"}</span>
               <span className={`badge badge-${ROLE_LABEL[userRole]?.toLowerCase()}`}>
                 {ROLE_LABEL[userRole]}
               </span>

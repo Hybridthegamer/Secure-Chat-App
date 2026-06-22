@@ -6,7 +6,7 @@ import "./LoginPage.css";
 export default function LoginPage() {
   const { connect, isConnected, isLoading, error, isDeployed, contractData } = useBlockchain();
 
-  if (isConnected) return <Navigate to="/dashboard" replace />;
+  if (isConnected) return <Navigate to="/chat" replace />;
 
   const accounts = contractData?.demoAccounts;
 
@@ -14,9 +14,9 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-hero">
         <div className="login-icon">⬡</div>
-        <h1 className="login-title">SecureChart</h1>
+        <h1 className="login-title">SecureChat</h1>
         <p className="login-subtitle">
-          Blockchain-Enabled Secure Data Visualisation Platform
+          Blockchain-Secured Decentralised Messaging Application
         </p>
 
         {error && <div className="alert alert-error">{error}</div>}
@@ -41,14 +41,14 @@ export default function LoginPage() {
 
       <div className="login-info">
         <div className="info-section">
-          <h3>System Features</h3>
+          <h3>Why Blockchain Chat?</h3>
           <ul className="feature-list">
-            <li><span className="feat-icon">📊</span> Interactive bar, line, pie &amp; scatter charts</li>
-            <li><span className="feat-icon">⛓️</span> Every change recorded on blockchain</li>
-            <li><span className="feat-icon">🔒</span> Tamper-proof hash-linked audit trail</li>
+            <li><span className="feat-icon">⛓️</span> Every message recorded on Ethereum blockchain</li>
+            <li><span className="feat-icon">🔒</span> Tamper-proof keccak256 hash-linked message chain</li>
             <li><span className="feat-icon">👥</span> Role-based access: Admin / Editor / Viewer</li>
-            <li><span className="feat-icon">✅</span> One-click integrity verification</li>
-            <li><span className="feat-icon">📜</span> Full immutable transaction history</li>
+            <li><span className="feat-icon">🏠</span> Public and private chat rooms</li>
+            <li><span className="feat-icon">✅</span> One-click cryptographic integrity verification</li>
+            <li><span className="feat-icon">📜</span> Full immutable edit and retraction history</li>
           </ul>
         </div>
 
@@ -61,12 +61,12 @@ export default function LoginPage() {
                 <div key={i} className="demo-account-row">
                   <span className={`badge badge-${acc.role.toLowerCase()}`}>{acc.role}</span>
                   <span className="demo-label">{acc.label}</span>
-                  <code className="demo-address">{acc.address.slice(0,10)}…</code>
+                  <code className="demo-address">{acc.address.slice(0, 10)}…</code>
                 </div>
               ))}
             </div>
             <p className="demo-note" style={{ marginTop: 8 }}>
-              Private keys are printed when running <code>npm run deploy</code>.
+              Full private keys printed when running <code>npm run deploy</code>.
             </p>
           </div>
         )}
@@ -76,7 +76,7 @@ export default function LoginPage() {
           <ol className="quick-start">
             <li>Run <code>npx hardhat node</code> in <code>blockchain/</code></li>
             <li>Run <code>npm run deploy</code> in <code>blockchain/</code></li>
-            <li>Add Hardhat network to MetaMask</li>
+            <li>Add Hardhat network to MetaMask (RPC above)</li>
             <li>Import a demo account private key</li>
             <li>Click <strong>Connect MetaMask</strong> above</li>
           </ol>

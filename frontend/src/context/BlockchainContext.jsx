@@ -1,8 +1,3 @@
-/**
- * BlockchainContext.jsx
- * Provides wallet connection, contract instances, and current user role
- * to the entire React application tree.
- */
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import contractData from "../contracts/contracts.json";
@@ -13,21 +8,20 @@ export const ROLE_LABEL = { 0: "None", 1: "Viewer", 2: "Editor", 3: "Admin" };
 const BlockchainContext = createContext(null);
 
 export function BlockchainProvider({ children }) {
-  const [provider,  setProvider]  = useState(null);
-  const [signer,    setSigner]    = useState(null);
-  const [account,   setAccount]   = useState(null);
-  const [userRole,  setUserRole]  = useState(ROLE.None);
-  const [username,  setUsername]  = useState("");
-  const [uacContract, setUac]     = useState(null);
-  const [csContract,  setCs]      = useState(null);
-  const [isConnected, setConnected] = useState(false);
-  const [isLoading,   setLoading]   = useState(false);
-  const [error,       setError]     = useState("");
-  const [networkOk,   setNetworkOk] = useState(false);
+  const [provider,    setProvider]    = useState(null);
+  const [signer,      setSigner]      = useState(null);
+  const [account,     setAccount]     = useState(null);
+  const [userRole,    setUserRole]    = useState(ROLE.None);
+  const [username,    setUsername]    = useState("");
+  const [uacContract, setUac]         = useState(null);
+  const [crContract,  setCr]          = useState(null);
+  const [isConnected, setConnected]   = useState(false);
+  const [isLoading,   setLoading]     = useState(false);
+  const [error,       setError]       = useState("");
+  const [networkOk,   setNetworkOk]   = useState(false);
 
   const isDeployed = Boolean(contractData?.contracts?.UserAccessControl?.address);
 
-  // ── load user profile after account is set ───────────────────────────────
   const loadProfile = useCallback(async (uac, addr) => {
     try {
       const profile = await uac.getProfile(addr);
@@ -39,7 +33,6 @@ export function BlockchainProvider({ children }) {
     }
   }, []);
 
-  // ── connect MetaMask ──────────────────────────────────────────────────────
   const connect = useCallback(async () => {
     if (!window.ethereum) {
       setError("MetaMask not detected. Please install MetaMask and configure it for localhost:8545 (Chain ID 31337).");
@@ -73,9 +66,9 @@ export function BlockchainProvider({ children }) {
         contractData.contracts.UserAccessControl.abi,
         web3Signer
       );
-      const cs = new ethers.Contract(
-        contractData.contracts.ChartStorage.address,
-        contractData.contracts.ChartStorage.abi,
+      const cr = new ethers.Contract(
+        contractData.contracts.ChatRoom.address,
+        contractData.contracts.ChatRoom.abi,
         web3Signer
       );
 
@@ -83,7 +76,7 @@ export function BlockchainProvider({ children }) {
       setSigner(web3Signer);
       setAccount(addr);
       setUac(uac);
-      setCs(cs);
+      setCr(cr);
       setConnected(true);
       setNetworkOk(true);
       await loadProfile(uac, addr);
@@ -101,19 +94,18 @@ export function BlockchainProvider({ children }) {
     setUserRole(ROLE.None);
     setUsername("");
     setUac(null);
-    setCs(null);
+    setCr(null);
     setConnected(false);
     setNetworkOk(false);
     setError("");
   }, []);
 
-  // ── react to MetaMask account / chain changes ─────────────────────────────
   useEffect(() => {
     if (!window.ethereum) return;
 
     const onAccountsChanged = (accounts) => {
-      if (accounts.length === 0) { disconnect(); }
-      else { connect(); }
+      if (accounts.length === 0) disconnect();
+      else connect();
     };
     const onChainChanged = () => { window.location.reload(); };
 
@@ -127,7 +119,7 @@ export function BlockchainProvider({ children }) {
 
   const value = {
     provider, signer, account, userRole, username,
-    uacContract, csContract,
+    uacContract, crContract,
     isConnected, isLoading, error, networkOk, isDeployed,
     connect, disconnect, loadProfile,
     contractData,
