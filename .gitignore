@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+blockchain/node_modules/
+frontend/node_modules/
+
+# Build outputs
+frontend/dist/
+blockchain/artifacts/
+blockchain/cache/
+blockchain/typechain-types/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
